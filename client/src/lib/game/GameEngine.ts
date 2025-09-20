@@ -104,23 +104,47 @@ export class GameEngine {
   }
 
   private explodeAroundPlayer() {
-    const explosionRadius = 100;
-    const explosionDamage = 50;
-    
+    this.explodeAt(this.player.x, this.player.y, 100, 50);
+  }
+  
+  private explodeAt(x: number, y: number, radius: number, damage: number) {
     for (let i = this.zombies.length - 1; i >= 0; i--) {
       const zombie = this.zombies[i];
       const distance = Math.sqrt(
-        Math.pow(zombie.x - this.player.x, 2) + 
-        Math.pow(zombie.y - this.player.y, 2)
+        Math.pow(zombie.x - x, 2) + 
+        Math.pow(zombie.y - y, 2)
       );
       
-      if (distance <= explosionRadius) {
-        zombie.takeDamage(explosionDamage);
+      if (distance <= radius) {
+        zombie.takeDamage(damage);
         this.audioManager.playHit();
         
         if (zombie.health <= 0) {
           this.handleZombieDeath(zombie, i);
         }
+      }
+    }
+  }
+  
+  private checkPoisonDamage() {
+    // Check if player is in any poison area
+    const inPoison = this.zombies.some(zombie => {
+      if (zombie.type !== ZombieType.POISON) return false;
+      
+      const trail = zombie.getPoisonTrail();
+      return trail.some(point => {
+        const distance = Math.sqrt(
+          Math.pow(point.x - this.player.x, 2) + 
+          Math.pow(point.y - this.player.y, 2)
+        );
+        return distance <= 15; // Poison radius
+      });
+    });
+    
+    // Apply poison damage only once per cooldown period
+    if (inPoison) {
+      if (this.player.takePoisonDamage(2)) {
+        this.audioManager.playPlayerHit();
       }
     }
   }
@@ -157,18 +181,26 @@ export class GameEngine {
         y = 0;
     }
     
-    // Determine zombie type based on spawn rates
+    // Determine zombie type based on spawn rates (including new types)
     const rand = Math.random();
     let zombieType: ZombieType;
     
-    if (rand < 0.5) {
+    if (rand < 0.35) {
       zombieType = ZombieType.NORMAL;
-    } else if (rand < 0.7) {
+    } else if (rand < 0.5) {
       zombieType = ZombieType.FAST;
-    } else if (rand < 0.9) {
+    } else if (rand < 0.65) {
       zombieType = ZombieType.SPLITTER;
-    } else {
+    } else if (rand < 0.75) {
       zombieType = ZombieType.HEAVY;
+    } else if (rand < 0.83) {
+      zombieType = ZombieType.POISON;
+    } else if (rand < 0.91) {
+      zombieType = ZombieType.SHIELD;
+    } else if (rand < 0.97) {
+      zombieType = ZombieType.BERSERKER;
+    } else {
+      zombieType = ZombieType.BOSS;
     }
     
     this.zombies.push(new Zombie(x, y, zombieType));
@@ -194,11 +226,14 @@ export class GameEngine {
     this.zombies.splice(index, 1);
     this.audioManager.playZombieDeath();
     
-    // Handle splitter zombie
+    // Handle special zombie death effects
     if (zombie.type === ZombieType.SPLITTER) {
       const splitZombie1 = new Zombie(zombie.x - 20, zombie.y, ZombieType.SPLITTER_CHILD);
       const splitZombie2 = new Zombie(zombie.x + 20, zombie.y, ZombieType.SPLITTER_CHILD);
       this.zombies.push(splitZombie1, splitZombie2);
+    } else if (zombie.type === ZombieType.BOSS) {
+      // Boss death explosion effect
+      this.explodeAt(zombie.x, zombie.y, 150, 75);
     }
   }
 
@@ -223,9 +258,16 @@ export class GameEngine {
     // Update player
     this.player.update(deltaTime, this.canvas.width, this.canvas.height);
     
-    // Update zombies
+    // Update zombies and handle special abilities
     this.zombies.forEach(zombie => {
       zombie.update(deltaTime, this.player.x, this.player.y);
+      
+      // Boss zombie spawns minions
+      if (zombie.shouldSpawnMinion()) {
+        const minionX = zombie.x + (Math.random() - 0.5) * 60;
+        const minionY = zombie.y + (Math.random() - 0.5) * 60;
+        this.zombies.push(new Zombie(minionX, minionY, ZombieType.NORMAL));
+      }
     });
     
     // Update bullets
@@ -242,6 +284,9 @@ export class GameEngine {
     
     // Check collisions
     this.checkCollisions();
+    
+    // Check poison trail damage
+    this.checkPoisonDamage();
     
     // Spawn entities
     this.spawnZombie();
@@ -262,8 +307,13 @@ export class GameEngine {
         const zombie = this.zombies[j];
         
         if (this.collisionSystem.checkCollision(bullet, zombie)) {
-          zombie.takeDamage(this.player.weaponDamage);
-          this.bullets.splice(i, 1);
+          const shieldBlocked = zombie.takeDamage(this.player.weaponDamage);
+          
+          // Some bullets may bounce off shields
+          if (!shieldBlocked || zombie.type !== ZombieType.SHIELD || Math.random() > 0.7) {
+            this.bullets.splice(i, 1);
+          }
+          
           this.audioManager.playHit();
           
           if (zombie.health <= 0) {
@@ -299,6 +349,9 @@ export class GameEngine {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     
     if (this.gameState.phase === 'playing') {
+      // Render poison trails first (behind everything else)
+      this.renderer.renderPoisonTrails(this.zombies);
+      
       // Render game objects
       this.renderer.renderPlayer(this.player);
       this.zombies.forEach(zombie => this.renderer.renderZombie(zombie));

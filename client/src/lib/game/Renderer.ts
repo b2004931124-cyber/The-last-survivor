@@ -1,5 +1,5 @@
 import { Player } from './Player';
-import { Zombie } from './Zombie';
+import { Zombie, ZombieType } from './Zombie';
 import { Bullet } from './Bullet';
 import { Item } from './Item';
 import { GameState } from './GameState';
@@ -44,6 +44,14 @@ export class Renderer {
   }
 
   public renderZombie(zombie: Zombie) {
+    this.ctx.save();
+    
+    // Special effects for berserker when enraged
+    if (zombie.type === ZombieType.BERSERKER && zombie.enraged) {
+      this.ctx.shadowColor = '#ff0000';
+      this.ctx.shadowBlur = 10;
+    }
+    
     this.ctx.fillStyle = zombie.color;
     this.ctx.fillRect(
       zombie.x - zombie.width / 2,
@@ -52,20 +60,66 @@ export class Renderer {
       zombie.height
     );
     
-    // Draw health bar for heavy zombies
-    if (zombie.type === 'heavy' && zombie.health < zombie.maxHealth) {
-      const barWidth = 30;
-      const barHeight = 3;
+    // Draw shield for shield zombies
+    if (zombie.type === ZombieType.SHIELD && zombie.shieldHealth > 0) {
+      this.ctx.strokeStyle = '#00aaff';
+      this.ctx.lineWidth = 3;
+      this.ctx.globalAlpha = 0.7;
+      this.ctx.strokeRect(
+        zombie.x - zombie.width / 2 - 3,
+        zombie.y - zombie.height / 2 - 3,
+        zombie.width + 6,
+        zombie.height + 6
+      );
+      this.ctx.globalAlpha = 1.0;
+    }
+    
+    // Draw crown for boss zombies
+    if (zombie.type === ZombieType.BOSS) {
+      this.ctx.fillStyle = '#ffaa00';
+      this.ctx.fillRect(
+        zombie.x - 8,
+        zombie.y - zombie.height / 2 - 8,
+        16,
+        6
+      );
+      // Crown points
+      this.ctx.fillRect(zombie.x - 6, zombie.y - zombie.height / 2 - 10, 3, 4);
+      this.ctx.fillRect(zombie.x - 1, zombie.y - zombie.height / 2 - 12, 3, 6);
+      this.ctx.fillRect(zombie.x + 4, zombie.y - zombie.height / 2 - 10, 3, 4);
+    }
+    
+    // Draw health bar for boss and heavy zombies
+    if ((zombie.type === ZombieType.HEAVY || zombie.type === ZombieType.BOSS) && zombie.health < zombie.maxHealth) {
+      const barWidth = zombie.type === ZombieType.BOSS ? 50 : 30;
+      const barHeight = 4;
       const barX = zombie.x - barWidth / 2;
-      const barY = zombie.y - zombie.height / 2 - 8;
+      const barY = zombie.y - zombie.height / 2 - (zombie.type === ZombieType.BOSS ? 15 : 8);
       
       this.ctx.fillStyle = '#ff0000';
       this.ctx.fillRect(barX, barY, barWidth, barHeight);
       
-      this.ctx.fillStyle = '#ffaa00';
+      this.ctx.fillStyle = zombie.type === ZombieType.BOSS ? '#ffaa00' : '#ffaa00';
       const healthWidth = zombie.getHealthPercentage() * barWidth;
       this.ctx.fillRect(barX, barY, healthWidth, barHeight);
     }
+    
+    // Draw shield bar for shield zombies
+    if (zombie.type === ZombieType.SHIELD && zombie.shieldHealth > 0) {
+      const barWidth = 25;
+      const barHeight = 3;
+      const barX = zombie.x - barWidth / 2;
+      const barY = zombie.y + zombie.height / 2 + 3;
+      
+      this.ctx.fillStyle = '#0066cc';
+      this.ctx.fillRect(barX, barY, barWidth, barHeight);
+      
+      this.ctx.fillStyle = '#00aaff';
+      const shieldWidth = zombie.getShieldPercentage() * barWidth;
+      this.ctx.fillRect(barX, barY, shieldWidth, barHeight);
+    }
+    
+    this.ctx.restore();
   }
 
   public renderBullet(bullet: Bullet) {
@@ -141,6 +195,28 @@ export class Renderer {
       this.ctx.fillStyle = '#666666';
       this.ctx.fillText('Empty', this.ctx.canvas.width - 100, this.ctx.canvas.height - 30);
     }
+    
+    this.ctx.restore();
+  }
+  
+  public renderPoisonTrails(zombies: any[]) {
+    this.ctx.save();
+    
+    zombies.forEach(zombie => {
+      if (zombie.type === ZombieType.POISON) {
+        const trail = zombie.getPoisonTrail();
+        const now = Date.now();
+        
+        trail.forEach((point: {x: number, y: number, time: number}) => {
+          const age = now - point.time;
+          const alpha = Math.max(0, 1 - age / 5000); // Fade over 5 seconds
+          
+          this.ctx.globalAlpha = alpha * 0.6;
+          this.ctx.fillStyle = '#00ff00';
+          this.ctx.fillRect(point.x - 8, point.y - 8, 16, 16);
+        });
+      }
+    });
     
     this.ctx.restore();
   }

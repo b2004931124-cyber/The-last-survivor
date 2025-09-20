@@ -19,6 +19,8 @@ export class Player {
   private shootCooldown = 200; // milliseconds
   private lastDamageTaken = 0;
   private damageCooldown = 1000; // 1 second invincibility
+  private lastPoisonTick = 0;
+  private poisonCooldown = 300; // 300ms between poison damage ticks
   private speedBoostEndTime = 0;
   private weaponUpgradeEndTime = 0;
 
@@ -116,5 +118,14 @@ export class Player {
 
   public isInvulnerable(): boolean {
     return Date.now() - this.lastDamageTaken < this.damageCooldown;
+  }
+
+  public takePoisonDamage(damage: number): boolean {
+    const now = Date.now();
+    if (now - this.lastPoisonTick < this.poisonCooldown) return false;
+    
+    this.lastPoisonTick = now;
+    this.health = Math.max(0, this.health - damage);
+    return true;
   }
 }
