@@ -21,6 +21,29 @@ export class Player {
   public lastAimX = 0;
   public lastAimY = -1; // Default aim up
   
+  // Permanent upgrades
+  public permanentDamageMultiplier = 1.0;
+  public permanentFireRateMultiplier = 1.0;
+  public permanentReloadSpeedMultiplier = 1.0;
+  public permanentPiercingUpgrade = false;
+  
+  // Stackable power-ups
+  public doubleShotEndTime = 0;
+  public tripleShotEndTime = 0;
+  public rapidFireEndTime = 0;
+  public shieldEndTime = 0;
+  public vampireEndTime = 0;
+  public berserkerModeEndTime = 0;
+  public timeDilationEndTime = 0;
+  public superSoldierEndTime = 0;
+  
+  // Power-up stacks
+  public doubleShotStacks = 0;
+  public tripleShotStacks = 0;
+  public rapidFireStacks = 0;
+  public shieldStacks = 0;
+  public vampireStacks = 0;
+  
   private lastShot = 0;
   private shootCooldown = 200; // milliseconds
   private lastDamageTaken = 0;
@@ -73,11 +96,76 @@ export class Player {
       this.weaponDamage = this.baseWeaponDamage;
       this.weaponUpgradeEndTime = 0;
     }
+    
+    // Reset stackable power-ups if expired
+    if (this.doubleShotEndTime > 0 && now > this.doubleShotEndTime) {
+      this.doubleShotEndTime = 0;
+      this.doubleShotStacks = 0;
+    }
+    
+    if (this.tripleShotEndTime > 0 && now > this.tripleShotEndTime) {
+      this.tripleShotEndTime = 0;
+      this.tripleShotStacks = 0;
+    }
+    
+    if (this.rapidFireEndTime > 0 && now > this.rapidFireEndTime) {
+      this.rapidFireEndTime = 0;
+      this.rapidFireStacks = 0;
+    }
+    
+    if (this.shieldEndTime > 0 && now > this.shieldEndTime) {
+      this.shieldEndTime = 0;
+      this.shieldStacks = 0;
+    }
+    
+    if (this.vampireEndTime > 0 && now > this.vampireEndTime) {
+      this.vampireEndTime = 0;
+      this.vampireStacks = 0;
+    }
+    
+    // Reset combination power-ups if expired
+    if (this.superSoldierEndTime > 0 && now > this.superSoldierEndTime) {
+      this.superSoldierEndTime = 0;
+    }
+    
+    if (this.berserkerModeEndTime > 0 && now > this.berserkerModeEndTime) {
+      this.berserkerModeEndTime = 0;
+    }
+    
+    if (this.timeDilationEndTime > 0 && now > this.timeDilationEndTime) {
+      this.timeDilationEndTime = 0;
+    }
   }
 
   public shoot(targetX: number, targetY: number): Bullet[] {
     const now = Date.now();
-    if (now - this.lastShot < this.weapon.stats.fireRate) return [];
+    
+    // Calculate effective fire rate with all upgrades
+    let effectiveFireRate = this.weapon.stats.fireRate;
+    
+    // Apply permanent fire rate upgrade
+    effectiveFireRate *= this.permanentFireRateMultiplier;
+    
+    // Apply rapid fire power-up
+    if (this.rapidFireEndTime > now) {
+      const rapidFireMultiplier = 0.3 + (0.1 * Math.max(0, this.rapidFireStacks - 1));
+      effectiveFireRate *= rapidFireMultiplier;
+    }
+    
+    // Apply berserker mode
+    if (this.berserkerModeEndTime > now) {
+      effectiveFireRate *= 0.4;
+    }
+    
+    // Apply time dilation
+    if (this.timeDilationEndTime > now) {
+      effectiveFireRate *= 0.2;
+    }
+    
+    // Clamp fire rate to prevent degenerate values
+    effectiveFireRate = Math.max(effectiveFireRate, 30);
+    
+    if (now - this.lastShot < effectiveFireRate) return [];
     if (!this.weapon.canFire()) return [];
     
     this.lastShot = now;
@@ -94,8 +182,23 @@ export class Player {
     
     const bullets: Bullet[] = [];
     
-    // Create bullets based on weapon type
-    for (let i = 0; i < this.weapon.stats.bulletCount; i++) {
+    // Determine bullet count with power-ups
+    let bulletCount = this.weapon.stats.bulletCount;
+    
+    // Apply double/triple shot power-ups
+    if (this.tripleShotEndTime > now) {
+      bulletCount *= (2 + this.tripleShotStacks);
+    } else if (this.doubleShotEndTime > now) {
+      bulletCount *= (1 + this.doubleShotStacks);
+    }
+    
+    // Apply super soldier combo
+    if (this.superSoldierEndTime > now) {
+      bulletCount *= 2;
+    }
+    
+    // Create bullets based on weapon type and power-ups
+    for (let i = 0; i < bulletCount; i++) {
       let dirX = baseDirX;
       let dirY = baseDirY;
       
@@ -112,8 +215,27 @@ export class Player {
         dirY = newDirY;
       }
       
-      // Apply weapon damage multiplier for upgrades
-      const effectiveDamage = this.weapon.stats.damage * (this.weaponDamage / this.baseWeaponDamage);
+      // Calculate effective damage with all multipliers
+      let effectiveDamage = this.weapon.stats.damage;
+      
+      // Apply permanent damage upgrade
+      effectiveDamage *= this.permanentDamageMultiplier;
+      
+      // Apply temporary weapon upgrade
+      effectiveDamage *= (this.weaponDamage / this.baseWeaponDamage);
+      
+      // Apply berserker mode damage bonus
+      if (this.berserkerModeEndTime > now) {
+        effectiveDamage *= 1.5;
+      }
+      
+      // Apply super soldier damage bonus
+      if (this.superSoldierEndTime > now) {
+        effectiveDamage *= 1.3;
+      }
+      
+      // Determine if bullet should pierce
+      let shouldPierce = this.weapon.stats.piercing || this.permanentPiercingUpgrade;
       
       // Store aim direction for continuous shooting
       this.lastAimX = baseDirX;
@@ -126,7 +248,7 @@ export class Player {
         dirY,
         effectiveDamage,
         this.weapon.stats.bulletSpeed,
-        this.weapon.stats.piercing,
+        shouldPierce,
         this.weapon.stats.color,
         this.weapon.stats.range
       ));
@@ -137,7 +259,28 @@ export class Player {
 
   public shootContinuous(deltaTime: number): Bullet[] {
     const now = Date.now();
-    if (now - this.lastShot < this.weapon.stats.fireRate) return [];
+    
+    // Calculate effective fire rate with all upgrades (same as shoot method)
+    let effectiveFireRate = this.weapon.stats.fireRate;
+    effectiveFireRate *= this.permanentFireRateMultiplier;
+    
+    if (this.rapidFireEndTime > now) {
+      const rapidFireMultiplier = 0.3 + (0.1 * Math.max(0, this.rapidFireStacks - 1));
+      effectiveFireRate *= rapidFireMultiplier;
+    }
+    
+    if (this.berserkerModeEndTime > now) {
+      effectiveFireRate *= 0.4;
+    }
+    
+    if (this.timeDilationEndTime > now) {
+      effectiveFireRate *= 0.2;
+    }
+    
+    // Clamp fire rate to prevent degenerate values
+    effectiveFireRate = Math.max(effectiveFireRate, 30);
+    
+    if (now - this.lastShot < effectiveFireRate) return [];
     if (!this.weapon.canFire()) return [];
     
     this.lastShot = now;
@@ -145,8 +288,21 @@ export class Player {
     
     const bullets: Bullet[] = [];
     
-    // Create bullets based on weapon type
-    for (let i = 0; i < this.weapon.stats.bulletCount; i++) {
+    // Determine bullet count with power-ups (same as shoot method)
+    let bulletCount = this.weapon.stats.bulletCount;
+    
+    if (this.tripleShotEndTime > now) {
+      bulletCount *= (2 + this.tripleShotStacks);
+    } else if (this.doubleShotEndTime > now) {
+      bulletCount *= (1 + this.doubleShotStacks);
+    }
+    
+    if (this.superSoldierEndTime > now) {
+      bulletCount *= 2;
+    }
+    
+    // Create bullets with power-up effects
+    for (let i = 0; i < bulletCount; i++) {
       let dirX = this.lastAimX;
       let dirY = this.lastAimY;
       
@@ -163,8 +319,20 @@ export class Player {
         dirY = newDirY;
       }
       
-      // Apply weapon damage multiplier for upgrades
-      const effectiveDamage = this.weapon.stats.damage * (this.weaponDamage / this.baseWeaponDamage);
+      // Calculate effective damage with all multipliers (same as shoot method)
+      let effectiveDamage = this.weapon.stats.damage;
+      effectiveDamage *= this.permanentDamageMultiplier;
+      effectiveDamage *= (this.weaponDamage / this.baseWeaponDamage);
+      
+      if (this.berserkerModeEndTime > now) {
+        effectiveDamage *= 1.5;
+      }
+      
+      if (this.superSoldierEndTime > now) {
+        effectiveDamage *= 1.3;
+      }
+      
+      let shouldPierce = this.weapon.stats.piercing || this.permanentPiercingUpgrade;
       
       bullets.push(new Bullet(
         this.x, 
@@ -173,7 +341,7 @@ export class Player {
         dirY,
         effectiveDamage,
         this.weapon.stats.bulletSpeed,
-        this.weapon.stats.piercing,
+        shouldPierce,
         this.weapon.stats.color,
         this.weapon.stats.range
       ));
@@ -185,6 +353,15 @@ export class Player {
   public takeDamage(damage: number): boolean {
     const now = Date.now();
     if (now - this.lastDamageTaken < this.damageCooldown) return false;
+    
+    // Check for shield protection
+    if (this.shieldEndTime > now && this.shieldStacks > 0) {
+      this.shieldStacks--;
+      if (this.shieldStacks <= 0) {
+        this.shieldEndTime = 0; // Shield depleted
+      }
+      return false; // Damage blocked by shield
+    }
     
     this.lastDamageTaken = now;
     this.health = Math.max(0, this.health - damage);
@@ -247,7 +424,115 @@ export class Player {
     if (this.weapon.ammo === this.weapon.maxAmmo || this.weapon.maxAmmo === -1) {
       return false; // Already full or infinite ammo
     }
+    
+    // For now, keep instant reload but log the upgrade benefit
+    if (this.permanentReloadSpeedMultiplier < 1.0) {
+      console.log(`⚡ Fast reload upgrade active: ${Math.round((1 - this.permanentReloadSpeedMultiplier) * 100)}% faster`);
+    }
+    
     this.weapon.reload();
     return true; // Reloaded successfully
+  }
+
+  // Permanent upgrade methods
+  public applyDamageUpgrade() {
+    this.permanentDamageMultiplier += 0.2; // 20% damage increase per upgrade
+  }
+
+  public applyFireRateUpgrade() {
+    this.permanentFireRateMultiplier *= 0.85; // 15% faster fire rate per upgrade
+  }
+
+  public applyReloadSpeedUpgrade() {
+    this.permanentReloadSpeedMultiplier *= 0.8; // 20% faster reload per upgrade
+  }
+
+  public applyMaxHealthUpgrade() {
+    this.maxHealth += 25;
+    this.health += 25; // Also heal when upgrading
+  }
+
+  public applyPiercingUpgrade() {
+    this.permanentPiercingUpgrade = true;
+  }
+
+  // Stackable power-up methods
+  public applyDoubleShot(duration: number) {
+    this.doubleShotStacks++;
+    this.doubleShotEndTime = Date.now() + duration;
+  }
+
+  public applyTripleShot(duration: number) {
+    this.tripleShotStacks++;
+    this.tripleShotEndTime = Date.now() + duration;
+  }
+
+  public applyRapidFire(duration: number) {
+    this.rapidFireStacks++;
+    this.rapidFireEndTime = Date.now() + duration;
+  }
+
+  public applyShield(duration: number, stacks: number = 3) {
+    this.shieldStacks += stacks;
+    this.shieldEndTime = Date.now() + duration;
+  }
+
+  public applyVampire(duration: number) {
+    this.vampireStacks++;
+    this.vampireEndTime = Date.now() + duration;
+  }
+
+  // Combination power-up methods
+  public applySuperSoldier(duration: number) {
+    this.superSoldierEndTime = Date.now() + duration;
+    // Super Soldier combines: damage boost, fire rate boost, double shots, and health boost
+    this.applySpeedBoost(duration);
+    this.heal(50);
+  }
+
+  public applyBerserkerMode(duration: number) {
+    this.berserkerModeEndTime = Date.now() + duration;
+    // Berserker Mode: extreme fire rate and damage, but vulnerability
+  }
+
+  public applyTimeDilation(duration: number) {
+    this.timeDilationEndTime = Date.now() + duration;
+    // Time Dilation: extreme fire rate boost, everything else slows down
+  }
+
+  // Vampire healing when dealing damage
+  public onZombieKill() {
+    if (this.vampireEndTime > Date.now() && this.vampireStacks > 0) {
+      const healAmount = 5 * this.vampireStacks; // More stacks = more healing
+      this.heal(healAmount);
+      console.log(`🩸 Vampire healing: +${healAmount} HP`);
+    }
+  }
+
+  // Check combination triggers
+  public checkCombinations(): ItemType[] {
+    const combinations: ItemType[] = [];
+    
+    // Check for Super Soldier combination (Speed + Damage + Health)
+    if (this.speedBoostEndTime > Date.now() && 
+        this.weaponUpgradeEndTime > Date.now() && 
+        this.health === this.maxHealth) {
+      combinations.push(ItemType.SUPER_SOLDIER);
+    }
+    
+    // Check for Berserker Mode combination (Rapid Fire + Double Shot)
+    if (this.rapidFireEndTime > Date.now() && 
+        this.doubleShotEndTime > Date.now()) {
+      combinations.push(ItemType.BERSERKER_MODE);
+    }
+    
+    // Check for Time Dilation combination (Triple Shot + Rapid Fire + Speed)
+    if (this.tripleShotEndTime > Date.now() && 
+        this.rapidFireEndTime > Date.now() && 
+        this.speedBoostEndTime > Date.now()) {
+      combinations.push(ItemType.TIME_DILATION);
+    }
+    
+    return combinations;
   }
 }

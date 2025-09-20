@@ -141,11 +141,82 @@ export class GameEngine {
       case ItemType.LASER_GUN:
         this.player.addWeapon(WeaponType.LASER);
         break;
+      // New permanent upgrades
+      case ItemType.DAMAGE_UPGRADE:
+        this.player.applyDamageUpgrade();
+        break;
+      case ItemType.FIRE_RATE_UPGRADE:
+        this.player.applyFireRateUpgrade();
+        break;
+      case ItemType.MAX_HEALTH_UPGRADE:
+        this.player.applyMaxHealthUpgrade();
+        break;
+      case ItemType.PIERCING_UPGRADE:
+        this.player.applyPiercingUpgrade();
+        break;
+      // Stackable power-ups
+      case ItemType.DOUBLE_SHOT:
+        this.player.applyDoubleShot(15000); // 15 seconds
+        break;
+      case ItemType.TRIPLE_SHOT:
+        this.player.applyTripleShot(12000); // 12 seconds
+        break;
+      case ItemType.RAPID_FIRE:
+        this.player.applyRapidFire(10000); // 10 seconds
+        break;
+      case ItemType.SHIELD:
+        this.player.applyShield(20000, 3); // 20 seconds, 3 hits
+        break;
+      case ItemType.VAMPIRE:
+        this.player.applyVampire(15000); // 15 seconds
+        break;
+      // Combination items
+      case ItemType.SUPER_SOLDIER:
+        this.player.applySuperSoldier(20000); // 20 seconds
+        break;
+      case ItemType.BERSERKER_MODE:
+        this.player.applyBerserkerMode(15000); // 15 seconds
+        break;
+      case ItemType.TIME_DILATION:
+        this.player.applyTimeDilation(8000); // 8 seconds
+        break;
     }
+
+    // Check for automatic combinations after applying any item
+    const combinations = this.player.checkCombinations();
+    const now = Date.now();
+    combinations.forEach(combo => {
+      switch (combo) {
+        case ItemType.SUPER_SOLDIER:
+          if (this.player.superSoldierEndTime <= now) { // Only trigger if not currently active
+            this.player.applySuperSoldier(20000);
+            this.showComboEffect("SUPER SOLDIER ACTIVATED!");
+          }
+          break;
+        case ItemType.BERSERKER_MODE:
+          if (this.player.berserkerModeEndTime <= now) {
+            this.player.applyBerserkerMode(15000);
+            this.showComboEffect("BERSERKER MODE ACTIVATED!");
+          }
+          break;
+        case ItemType.TIME_DILATION:
+          if (this.player.timeDilationEndTime <= now) {
+            this.player.applyTimeDilation(8000);
+            this.showComboEffect("TIME DILATION ACTIVATED!");
+          }
+          break;
+      }
+    });
   }
 
   private explodeAroundPlayer() {
     this.explodeAt(this.player.x, this.player.y, 100, 50);
+  }
+
+  private showComboEffect(message: string) {
+    // Display combo activation message - for now just log it
+    // Could be enhanced with visual effects later
+    console.log(`🔥 ${message}`);
   }
   
   private explodeAt(x: number, y: number, radius: number, damage: number) {
@@ -306,8 +377,44 @@ export class GameEngine {
     const x = Math.random() * (this.canvas.width - 40) + 20;
     const y = Math.random() * (this.canvas.height - 40) + 20;
     
-    const itemTypes = Object.values(ItemType);
-    const randomType = itemTypes[Math.floor(Math.random() * itemTypes.length)];
+    // Weighted item distribution
+    const itemPool = [
+      // Basic items (higher chance)
+      ItemType.HEALTH_PACK, ItemType.HEALTH_PACK, ItemType.HEALTH_PACK,
+      ItemType.SPEED_BOOST, ItemType.SPEED_BOOST,
+      ItemType.EXPLOSIVE, ItemType.EXPLOSIVE,
+      
+      // Weapons (medium chance)
+      ItemType.AK47,
+      ItemType.SHOTGUN,
+      ItemType.SNIPER_RIFLE,
+      ItemType.MACHINE_GUN,
+      ItemType.LASER_GUN,
+      
+      // Power-ups (medium chance)
+      ItemType.DOUBLE_SHOT,
+      ItemType.TRIPLE_SHOT,
+      ItemType.RAPID_FIRE,
+      ItemType.SHIELD,
+      ItemType.VAMPIRE,
+      
+      // Permanent upgrades (rare)
+      ItemType.DAMAGE_UPGRADE,
+      ItemType.FIRE_RATE_UPGRADE,
+      ItemType.MAX_HEALTH_UPGRADE,
+      ItemType.PIERCING_UPGRADE
+    ];
+    
+    // Very rare combination items (5% chance)
+    const rand = Math.random();
+    let randomType: ItemType;
+    
+    if (rand < 0.05) {
+      const comboItems = [ItemType.SUPER_SOLDIER, ItemType.BERSERKER_MODE, ItemType.TIME_DILATION];
+      randomType = comboItems[Math.floor(Math.random() * comboItems.length)];
+    } else {
+      randomType = itemPool[Math.floor(Math.random() * itemPool.length)];
+    }
     
     this.items.push(new Item(x, y, randomType));
   }
@@ -316,6 +423,9 @@ export class GameEngine {
     this.gameState.addScore(zombie.scoreValue);
     this.zombies.splice(index, 1);
     this.audioManager.playZombieDeath();
+    
+    // Trigger vampire healing if active
+    this.player.onZombieKill();
     
     // Handle special zombie death effects
     if (zombie.type === ZombieType.SPLITTER) {
