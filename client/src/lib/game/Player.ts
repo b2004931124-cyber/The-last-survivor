@@ -1,6 +1,7 @@
 import { Bullet } from './Bullet';
 import { Item } from './Item';
 import { InputManager } from './InputManager';
+import { Weapon, WeaponType } from './Weapon';
 
 export class Player {
   public x: number;
@@ -14,6 +15,11 @@ export class Player {
   public weaponDamage = 10;
   public baseWeaponDamage = 10;
   public inventory: Item | null = null;
+  public weapon: Weapon;
+  public weapons: Weapon[] = [];
+  public currentWeaponIndex = 0;
+  public lastAimX = 0;
+  public lastAimY = -1; // Default aim up
   
   private lastShot = 0;
   private shootCooldown = 200; // milliseconds
@@ -27,6 +33,10 @@ export class Player {
   constructor(x: number, y: number) {
     this.x = x;
     this.y = y;
+    
+    // Initialize with pistol
+    this.weapon = new Weapon(WeaponType.PISTOL);
+    this.weapons.push(this.weapon);
   }
 
   public handleInput(inputManager: InputManager, deltaTime: number) {
@@ -65,32 +75,111 @@ export class Player {
     }
   }
 
-  public shoot(targetX: number, targetY: number): Bullet | null {
+  public shoot(targetX: number, targetY: number): Bullet[] {
     const now = Date.now();
-    if (now - this.lastShot < this.shootCooldown) return null;
+    if (now - this.lastShot < this.weapon.stats.fireRate) return [];
+    if (!this.weapon.canFire()) return [];
     
     this.lastShot = now;
+    this.weapon.fire();
     
     const dx = targetX - this.x;
     const dy = targetY - this.y;
     const length = Math.sqrt(dx * dx + dy * dy);
     
-    if (length === 0) return null;
+    if (length === 0) return [];
     
-    const dirX = dx / length;
-    const dirY = dy / length;
+    const baseDirX = dx / length;
+    const baseDirY = dy / length;
     
-    return new Bullet(this.x, this.y, dirX, dirY);
+    const bullets: Bullet[] = [];
+    
+    // Create bullets based on weapon type
+    for (let i = 0; i < this.weapon.stats.bulletCount; i++) {
+      let dirX = baseDirX;
+      let dirY = baseDirY;
+      
+      // Apply spread for shotgun and machine gun
+      if (this.weapon.stats.spread > 0) {
+        const spreadAngle = (Math.random() - 0.5) * this.weapon.stats.spread;
+        const cos = Math.cos(spreadAngle);
+        const sin = Math.sin(spreadAngle);
+        
+        const newDirX = dirX * cos - dirY * sin;
+        const newDirY = dirX * sin + dirY * cos;
+        
+        dirX = newDirX;
+        dirY = newDirY;
+      }
+      
+      // Apply weapon damage multiplier for upgrades
+      const effectiveDamage = this.weapon.stats.damage * (this.weaponDamage / this.baseWeaponDamage);
+      
+      // Store aim direction for continuous shooting
+      this.lastAimX = baseDirX;
+      this.lastAimY = baseDirY;
+      
+      bullets.push(new Bullet(
+        this.x, 
+        this.y, 
+        dirX, 
+        dirY,
+        effectiveDamage,
+        this.weapon.stats.bulletSpeed,
+        this.weapon.stats.piercing,
+        this.weapon.stats.color,
+        this.weapon.stats.range
+      ));
+    }
+    
+    return bullets;
   }
 
-  public shootContinuous(deltaTime: number): Bullet | null {
+  public shootContinuous(deltaTime: number): Bullet[] {
     const now = Date.now();
-    if (now - this.lastShot < this.shootCooldown) return null;
+    if (now - this.lastShot < this.weapon.stats.fireRate) return [];
+    if (!this.weapon.canFire()) return [];
     
     this.lastShot = now;
+    this.weapon.fire();
     
-    // Shoot towards mouse or default direction (up)
-    return new Bullet(this.x, this.y, 0, -1);
+    const bullets: Bullet[] = [];
+    
+    // Create bullets based on weapon type
+    for (let i = 0; i < this.weapon.stats.bulletCount; i++) {
+      let dirX = this.lastAimX;
+      let dirY = this.lastAimY;
+      
+      // Apply spread for shotgun and machine gun
+      if (this.weapon.stats.spread > 0) {
+        const spreadAngle = (Math.random() - 0.5) * this.weapon.stats.spread;
+        const cos = Math.cos(spreadAngle);
+        const sin = Math.sin(spreadAngle);
+        
+        const newDirX = dirX * cos - dirY * sin;
+        const newDirY = dirX * sin + dirY * cos;
+        
+        dirX = newDirX;
+        dirY = newDirY;
+      }
+      
+      // Apply weapon damage multiplier for upgrades
+      const effectiveDamage = this.weapon.stats.damage * (this.weaponDamage / this.baseWeaponDamage);
+      
+      bullets.push(new Bullet(
+        this.x, 
+        this.y, 
+        dirX, 
+        dirY,
+        effectiveDamage,
+        this.weapon.stats.bulletSpeed,
+        this.weapon.stats.piercing,
+        this.weapon.stats.color,
+        this.weapon.stats.range
+      ));
+    }
+    
+    return bullets;
   }
 
   public takeDamage(damage: number): boolean {
@@ -127,5 +216,38 @@ export class Player {
     this.lastPoisonTick = now;
     this.health = Math.max(0, this.health - damage);
     return true;
+  }
+
+  public addWeapon(weaponType: WeaponType) {
+    // Check if we already have this weapon
+    const existingWeapon = this.weapons.find(w => w.type === weaponType);
+    if (existingWeapon) {
+      existingWeapon.reload(); // Just reload if we already have it
+      return;
+    }
+    
+    const newWeapon = new Weapon(weaponType);
+    this.weapons.push(newWeapon);
+    this.switchToWeapon(this.weapons.length - 1);
+  }
+
+  public switchToWeapon(index: number) {
+    if (index >= 0 && index < this.weapons.length) {
+      this.currentWeaponIndex = index;
+      this.weapon = this.weapons[index];
+    }
+  }
+
+  public switchWeapon() {
+    this.currentWeaponIndex = (this.currentWeaponIndex + 1) % this.weapons.length;
+    this.weapon = this.weapons[this.currentWeaponIndex];
+  }
+
+  public reloadWeapon(): boolean {
+    if (this.weapon.ammo === this.weapon.maxAmmo || this.weapon.maxAmmo === -1) {
+      return false; // Already full or infinite ammo
+    }
+    this.weapon.reload();
+    return true; // Reloaded successfully
   }
 }

@@ -2,6 +2,7 @@ import { Player } from './Player';
 import { Zombie, ZombieType } from './Zombie';
 import { Bullet } from './Bullet';
 import { Item, ItemType } from './Item';
+import { WeaponType } from './Weapon';
 import { GameState } from './GameState';
 import { InputManager } from './InputManager';
 import { AudioManager } from './AudioManager';
@@ -24,6 +25,8 @@ export class GameEngine {
   private lastTime = 0;
   private lastZombieSpawn = 0;
   private lastItemSpawn = 0;
+  private lastMouseX = 0;
+  private lastMouseY = 0;
 
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
@@ -52,15 +55,31 @@ export class GameEngine {
 
     this.canvas.addEventListener('mousemove', (e) => {
       if (this.gameState.phase !== 'playing') return;
+      
+      // Store mouse position for aiming
+      this.lastMouseX = e.clientX;
+      this.lastMouseY = e.clientY;
+      
       if (this.inputManager.isMouseDown()) {
         this.handleShooting(e.clientX, e.clientY);
       }
     });
 
-    // Item usage
+    // Item usage and weapon switching
     document.addEventListener('keydown', (e) => {
-      if (e.code === 'KeyE' && this.gameState.phase === 'playing') {
+      if (this.gameState.phase !== 'playing') return;
+      
+      if (e.code === 'KeyE') {
         this.useItem();
+      } else if (e.code === 'KeyQ') {
+        this.player.switchWeapon();
+      } else if (e.code === 'KeyR') {
+        if (this.player.reloadWeapon()) {
+          this.audioManager.playItemUse(); // Use item sound for reload
+        }
+      } else if (e.code >= 'Digit1' && e.code <= 'Digit5') {
+        const weaponIndex = parseInt(e.code.slice(-1)) - 1;
+        this.player.switchToWeapon(weaponIndex);
       }
     });
   }
@@ -70,9 +89,9 @@ export class GameEngine {
     const targetX = mouseX - rect.left;
     const targetY = mouseY - rect.top;
     
-    const bullet = this.player.shoot(targetX, targetY);
-    if (bullet) {
-      this.bullets.push(bullet);
+    const newBullets = this.player.shoot(targetX, targetY);
+    if (newBullets.length > 0) {
+      this.bullets.push(...newBullets);
       this.audioManager.playShoot();
     }
   }
@@ -99,6 +118,18 @@ export class GameEngine {
         break;
       case ItemType.AK47:
         this.player.applyWeaponUpgrade(10000); // 10 seconds
+        break;
+      case ItemType.SHOTGUN:
+        this.player.addWeapon(WeaponType.SHOTGUN);
+        break;
+      case ItemType.SNIPER_RIFLE:
+        this.player.addWeapon(WeaponType.SNIPER);
+        break;
+      case ItemType.MACHINE_GUN:
+        this.player.addWeapon(WeaponType.MACHINE_GUN);
+        break;
+      case ItemType.LASER_GUN:
+        this.player.addWeapon(WeaponType.LASER);
         break;
     }
   }
@@ -248,9 +279,25 @@ export class GameEngine {
     
     // Continuous shooting with space or mouse
     if (this.inputManager.isKeyPressed('Space') || this.inputManager.isMouseDown()) {
-      const bullet = this.player.shootContinuous(deltaTime);
-      if (bullet) {
-        this.bullets.push(bullet);
+      // For mouse shooting, use stored mouse position for aiming
+      if (this.inputManager.isMouseDown() && (this.lastMouseX || this.lastMouseY)) {
+        const rect = this.canvas.getBoundingClientRect();
+        const targetX = this.lastMouseX - rect.left;
+        const targetY = this.lastMouseY - rect.top;
+        
+        const dx = targetX - this.player.x;
+        const dy = targetY - this.player.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length > 0) {
+          this.player.lastAimX = dx / length;
+          this.player.lastAimY = dy / length;
+        }
+      }
+      
+      const newBullets = this.player.shootContinuous(deltaTime);
+      if (newBullets.length > 0) {
+        this.bullets.push(...newBullets);
         this.audioManager.playShoot();
       }
     }
@@ -275,9 +322,10 @@ export class GameEngine {
       const bullet = this.bullets[i];
       bullet.update(deltaTime);
       
-      // Remove bullets that are off-screen
+      // Remove bullets that are off-screen or expired
       if (bullet.x < -50 || bullet.x > this.canvas.width + 50 ||
-          bullet.y < -50 || bullet.y > this.canvas.height + 50) {
+          bullet.y < -50 || bullet.y > this.canvas.height + 50 ||
+          bullet.isExpired()) {
         this.bullets.splice(i, 1);
       }
     }
@@ -307,11 +355,14 @@ export class GameEngine {
         const zombie = this.zombies[j];
         
         if (this.collisionSystem.checkCollision(bullet, zombie)) {
-          const shieldBlocked = zombie.takeDamage(this.player.weaponDamage);
+          const shieldBlocked = zombie.takeDamage(bullet.damage);
           
-          // Some bullets may bounce off shields
-          if (!shieldBlocked || zombie.type !== ZombieType.SHIELD || Math.random() > 0.7) {
-            this.bullets.splice(i, 1);
+          // Piercing bullets don't get removed unless blocked by shield
+          if (!bullet.piercing || (shieldBlocked && zombie.type === ZombieType.SHIELD)) {
+            // Some bullets may bounce off shields
+            if (!shieldBlocked || zombie.type !== ZombieType.SHIELD || Math.random() > 0.7) {
+              this.bullets.splice(i, 1);
+            }
           }
           
           this.audioManager.playHit();
@@ -319,7 +370,8 @@ export class GameEngine {
           if (zombie.health <= 0) {
             this.handleZombieDeath(zombie, j);
           }
-          break;
+          
+          if (!bullet.piercing) break; // Non-piercing bullets stop after first hit
         }
       }
     }

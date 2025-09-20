@@ -123,13 +123,28 @@ export class Renderer {
   }
 
   public renderBullet(bullet: Bullet) {
-    this.ctx.fillStyle = '#ffff00';
-    this.ctx.fillRect(
-      bullet.x - bullet.width / 2,
-      bullet.y - bullet.height / 2,
-      bullet.width,
-      bullet.height
-    );
+    this.ctx.fillStyle = bullet.color;
+    
+    // Make piercing bullets slightly larger and add glow effect
+    if (bullet.piercing) {
+      this.ctx.save();
+      this.ctx.shadowColor = bullet.color;
+      this.ctx.shadowBlur = 5;
+      this.ctx.fillRect(
+        bullet.x - bullet.width / 2 - 1,
+        bullet.y - bullet.height / 2 - 1,
+        bullet.width + 2,
+        bullet.height + 2
+      );
+      this.ctx.restore();
+    } else {
+      this.ctx.fillRect(
+        bullet.x - bullet.width / 2,
+        bullet.y - bullet.height / 2,
+        bullet.width,
+        bullet.height
+      );
+    }
   }
 
   public renderItem(item: Item) {
@@ -177,23 +192,37 @@ export class Renderer {
     this.ctx.fillText(scoreText, this.ctx.canvas.width / 2 - scoreWidth / 2, 30);
     this.ctx.fillText(timeText, this.ctx.canvas.width / 2 - timeWidth / 2, 50);
     
-    // Inventory (bottom right)
+    // Weapon info (bottom right)
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    this.ctx.fillRect(this.ctx.canvas.width - 130, this.ctx.canvas.height - 70, 120, 60);
+    this.ctx.fillRect(this.ctx.canvas.width - 180, this.ctx.canvas.height - 90, 170, 80);
     
     this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillText('Inventory (E):', this.ctx.canvas.width - 125, this.ctx.canvas.height - 50);
+    this.ctx.font = '14px Inter, Arial, sans-serif';
+    this.ctx.fillText(`Weapon: ${player.weapon.name}`, this.ctx.canvas.width - 175, this.ctx.canvas.height - 70);
+    this.ctx.fillText(`Ammo: ${player.weapon.getAmmoText()}`, this.ctx.canvas.width - 175, this.ctx.canvas.height - 50);
+    
+    this.ctx.font = '12px Inter, Arial, sans-serif';
+    this.ctx.fillText('Q: Switch | R: Reload | 1-5: Select', this.ctx.canvas.width - 175, this.ctx.canvas.height - 30);
+    
+    // Inventory (top right, smaller)
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.fillRect(this.ctx.canvas.width - 130, this.ctx.canvas.height - 160, 120, 60);
+    
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.font = '14px Inter, Arial, sans-serif';
+    this.ctx.fillText('Item (E):', this.ctx.canvas.width - 125, this.ctx.canvas.height - 140);
     
     if (player.inventory) {
       this.ctx.fillStyle = player.inventory.color;
-      this.ctx.fillRect(this.ctx.canvas.width - 100, this.ctx.canvas.height - 40, 16, 16);
+      this.ctx.fillRect(this.ctx.canvas.width - 100, this.ctx.canvas.height - 125, 16, 16);
       
       this.ctx.fillStyle = '#ffffff';
       this.ctx.font = '12px Inter, Arial, sans-serif';
-      this.ctx.fillText(player.inventory.name, this.ctx.canvas.width - 80, this.ctx.canvas.height - 28);
+      this.ctx.fillText(player.inventory.name, this.ctx.canvas.width - 80, this.ctx.canvas.height - 113);
     } else {
       this.ctx.fillStyle = '#666666';
-      this.ctx.fillText('Empty', this.ctx.canvas.width - 100, this.ctx.canvas.height - 30);
+      this.ctx.font = '12px Inter, Arial, sans-serif';
+      this.ctx.fillText('Empty', this.ctx.canvas.width - 100, this.ctx.canvas.height - 120);
     }
     
     this.ctx.restore();
