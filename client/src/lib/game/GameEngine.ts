@@ -3,6 +3,7 @@ import { Zombie, ZombieType } from './Zombie';
 import { Bullet } from './Bullet';
 import { Item, ItemType } from './Item';
 import { WeaponType } from './Weapon';
+import { Obstacle } from './Obstacle';
 import { GameState } from './GameState';
 import { InputManager } from './InputManager';
 import { AudioManager } from './AudioManager';
@@ -17,6 +18,7 @@ export class GameEngine {
   private zombies: Zombie[] = [];
   private bullets: Bullet[] = [];
   private items: Item[] = [];
+  private obstacles: Obstacle[] = [];
   private inputManager: InputManager;
   private audioManager: AudioManager;
   private collisionSystem: CollisionSystem;
@@ -37,6 +39,14 @@ export class GameEngine {
     this.audioManager = new AudioManager();
     this.collisionSystem = new CollisionSystem();
     this.renderer = new Renderer(ctx);
+
+    // Generate random obstacles
+    this.obstacles = Obstacle.generateRandomObstacles(
+      canvas.width,
+      canvas.height,
+      this.player.x,
+      this.player.y
+    );
 
     this.setupEventListeners();
   }
@@ -177,6 +187,56 @@ export class GameEngine {
       if (this.player.takePoisonDamage(2)) {
         this.audioManager.playPlayerHit();
       }
+    }
+  }
+
+  private resolvePlayerObstacleCollision(obstacle: Obstacle) {
+    // Simple collision resolution - push player away from obstacle
+    const dx = this.player.x - obstacle.x;
+    const dy = this.player.y - obstacle.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance === 0) return; // Avoid division by zero
+    
+    // Calculate overlap
+    const playerHalfWidth = this.player.width / 2;
+    const playerHalfHeight = this.player.height / 2;
+    const obstacleHalfWidth = obstacle.width / 2;
+    const obstacleHalfHeight = obstacle.height / 2;
+    
+    const overlapX = (playerHalfWidth + obstacleHalfWidth) - Math.abs(dx);
+    const overlapY = (playerHalfHeight + obstacleHalfHeight) - Math.abs(dy);
+    
+    // Push along the axis of minimum overlap
+    if (overlapX < overlapY) {
+      this.player.x += dx > 0 ? overlapX : -overlapX;
+    } else {
+      this.player.y += dy > 0 ? overlapY : -overlapY;
+    }
+  }
+
+  private resolveZombieObstacleCollision(zombie: Zombie, obstacle: Obstacle) {
+    // Simple pathfinding - move zombie around obstacle
+    const dx = zombie.x - obstacle.x;
+    const dy = zombie.y - obstacle.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance === 0) return; // Avoid division by zero
+    
+    // Calculate overlap
+    const zombieHalfWidth = zombie.width / 2;
+    const zombieHalfHeight = zombie.height / 2;
+    const obstacleHalfWidth = obstacle.width / 2;
+    const obstacleHalfHeight = obstacle.height / 2;
+    
+    const overlapX = (zombieHalfWidth + obstacleHalfWidth) - Math.abs(dx);
+    const overlapY = (zombieHalfHeight + obstacleHalfHeight) - Math.abs(dy);
+    
+    // Push along the axis of minimum overlap, but less aggressively than player
+    if (overlapX < overlapY) {
+      zombie.x += dx > 0 ? overlapX * 0.5 : -overlapX * 0.5;
+    } else {
+      zombie.y += dy > 0 ? overlapY * 0.5 : -overlapY * 0.5;
     }
   }
 
@@ -330,6 +390,18 @@ export class GameEngine {
       }
     }
     
+    // Check for destroyed obstacles
+    for (let i = this.obstacles.length - 1; i >= 0; i--) {
+      const obstacle = this.obstacles[i];
+      if (obstacle.isDestroyed()) {
+        if (obstacle.explosive) {
+          this.explodeAt(obstacle.x, obstacle.y, obstacle.explosionRadius, obstacle.explosionDamage);
+        }
+        this.obstacles.splice(i, 1);
+        this.audioManager.playHit();
+      }
+    }
+    
     // Check collisions
     this.checkCollisions();
     
@@ -350,6 +422,7 @@ export class GameEngine {
     // Bullet-Zombie collisions
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const bullet = this.bullets[i];
+      let bulletHit = false;
       
       for (let j = this.zombies.length - 1; j >= 0; j--) {
         const zombie = this.zombies[j];
@@ -362,6 +435,7 @@ export class GameEngine {
             // Some bullets may bounce off shields
             if (!shieldBlocked || zombie.type !== ZombieType.SHIELD || Math.random() > 0.7) {
               this.bullets.splice(i, 1);
+              bulletHit = true;
             }
           }
           
@@ -372,6 +446,31 @@ export class GameEngine {
           }
           
           if (!bullet.piercing) break; // Non-piercing bullets stop after first hit
+        }
+      }
+      
+      if (bulletHit) continue; // Skip obstacle check if bullet was removed
+      
+      // Bullet-Obstacle collisions
+      for (let j = this.obstacles.length - 1; j >= 0; j--) {
+        const obstacle = this.obstacles[j];
+        
+        if (this.collisionSystem.checkCollision(bullet, obstacle)) {
+          if (obstacle.takeDamage(bullet.damage)) {
+            this.audioManager.playHit();
+          }
+          
+          // Remove immediately if obstacle is destroyed and not explosive (to avoid extra collisions this frame)
+          if (obstacle.isDestroyed() && !obstacle.explosive) {
+            this.obstacles.splice(j, 1);
+            // Explosive obstacles are handled in the main update loop for proper explosion timing
+          }
+          
+          // Remove non-piercing bullets or piercing bullets that hit indestructible obstacles
+          if (!bullet.piercing || !obstacle.destructible) {
+            this.bullets.splice(i, 1);
+            break;
+          }
         }
       }
     }
@@ -395,6 +494,22 @@ export class GameEngine {
         this.audioManager.playItemPickup();
       }
     }
+    
+    // Check player-obstacle collisions for movement blocking
+    this.obstacles.forEach(obstacle => {
+      if (this.collisionSystem.checkCollision(this.player, obstacle)) {
+        this.resolvePlayerObstacleCollision(obstacle);
+      }
+    });
+    
+    // Check zombie-obstacle collisions for pathfinding
+    this.zombies.forEach(zombie => {
+      this.obstacles.forEach(obstacle => {
+        if (this.collisionSystem.checkCollision(zombie, obstacle)) {
+          this.resolveZombieObstacleCollision(zombie, obstacle);
+        }
+      });
+    });
   }
 
   private render() {
@@ -403,6 +518,9 @@ export class GameEngine {
     if (this.gameState.phase === 'playing') {
       // Render poison trails first (behind everything else)
       this.renderer.renderPoisonTrails(this.zombies);
+      
+      // Render obstacles (behind characters but above trails)
+      this.obstacles.forEach(obstacle => this.renderer.renderObstacle(obstacle));
       
       // Render game objects
       this.renderer.renderPlayer(this.player);
@@ -440,8 +558,17 @@ export class GameEngine {
     this.zombies = [];
     this.bullets = [];
     this.items = [];
+    this.obstacles = [];
     this.lastZombieSpawn = 0;
     this.lastItemSpawn = 0;
+    
+    // Regenerate obstacles for new game
+    this.obstacles = Obstacle.generateRandomObstacles(
+      this.canvas.width,
+      this.canvas.height,
+      this.player.x,
+      this.player.y
+    );
     
     this.start();
   }

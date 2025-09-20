@@ -3,6 +3,7 @@ import { Zombie, ZombieType } from './Zombie';
 import { Bullet } from './Bullet';
 import { Item } from './Item';
 import { GameState } from './GameState';
+import { Obstacle } from './Obstacle';
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -280,5 +281,60 @@ export class Renderer {
     };
     
     this.ctx.canvas.addEventListener('click', restartHandler, { once: true });
+  }
+
+  public renderObstacle(obstacle: Obstacle) {
+    this.ctx.save();
+    
+    // Add glow effect for explosive barrels
+    if (obstacle.type === 'explosive_barrel') {
+      this.ctx.shadowColor = '#FF6B35';
+      this.ctx.shadowBlur = 8;
+    }
+    
+    this.ctx.fillStyle = obstacle.color;
+    this.ctx.fillRect(
+      obstacle.x - obstacle.width / 2,
+      obstacle.y - obstacle.height / 2,
+      obstacle.width,
+      obstacle.height
+    );
+    
+    // Draw health bar for destructible obstacles if damaged
+    if (obstacle.destructible && obstacle.health < obstacle.maxHealth && obstacle.health > 0) {
+      const barWidth = Math.max(20, obstacle.width * 0.8);
+      const barHeight = 3;
+      const barX = obstacle.x - barWidth / 2;
+      const barY = obstacle.y - obstacle.height / 2 - 8;
+      
+      this.ctx.fillStyle = '#ff0000';
+      this.ctx.fillRect(barX, barY, barWidth, barHeight);
+      
+      this.ctx.fillStyle = '#00ff00';
+      const healthWidth = obstacle.getHealthPercentage() * barWidth;
+      this.ctx.fillRect(barX, barY, healthWidth, barHeight);
+    }
+    
+    // Add special markers
+    if (obstacle.type === 'explosive_barrel') {
+      // Warning symbol
+      this.ctx.fillStyle = '#FFFF00';
+      this.ctx.fillRect(obstacle.x - 3, obstacle.y - 8, 6, 6);
+      this.ctx.fillStyle = '#FF0000';
+      this.ctx.fillRect(obstacle.x - 1, obstacle.y - 6, 2, 2);
+    } else if (obstacle.type === 'wall') {
+      // Add brick pattern
+      this.ctx.strokeStyle = '#606060';
+      this.ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const yPos = obstacle.y - obstacle.height / 2 + (i * obstacle.height / 3);
+        this.ctx.beginPath();
+        this.ctx.moveTo(obstacle.x - obstacle.width / 2, yPos);
+        this.ctx.lineTo(obstacle.x + obstacle.width / 2, yPos);
+        this.ctx.stroke();
+      }
+    }
+    
+    this.ctx.restore();
   }
 }
