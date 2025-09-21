@@ -13,7 +13,6 @@ npm run dev
 # 4. 開啟瀏覽器訪問 Open browser and visit
 # http://localhost:5000
 
-遊戲內容設定:
 # Zombie Survival Game
 
 A 2D pixel-style zombie survival shooting game built with HTML5 Canvas and TypeScript.
