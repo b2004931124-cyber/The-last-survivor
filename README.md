@@ -1,7 +1,8 @@
-建議系統需求:
+# 建議系統需求:
 Node.js 20+（建議使用 v20.x），否則容易報錯
 現代瀏覽器（支援HTML5 Canvas）
-#安裝步驟 Installation Steps
+# 安裝步驟 Installation Steps
+```bash
 # 1. 開啟命令提示字元，並 CD 至專案資料夾
 
 # 2. 安裝依賴 Install dependencies
@@ -12,7 +13,7 @@ npm run dev
 
 # 4. 開啟瀏覽器訪問 Open browser and visit
 # http://localhost:5000
-
+```
 # Zombie Survival Game
 
 A 2D pixel-style zombie survival shooting game built with HTML5 Canvas and TypeScript.
